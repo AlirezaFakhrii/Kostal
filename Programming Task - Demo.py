@@ -1,0 +1,134 @@
+"""
+This application processes an Excel document by splitting requirements based on the occurrence of LK_SWC
+entries and adds a parent reference ID column to the output.
+"""
+
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import pandas as pd
+import os
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment
+
+class ExcelProcessor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Excel Processor")
+        self.root.geometry("500x300")
+        self.root.configure(bg='light goldenrod yellow')  # Set background color to cream
+
+        self.create_widgets()
+        self.excel_file_path = None
+        self.processed_file_path = None
+
+    def create_widgets(self):
+        """Create and pack all the widgets."""
+        self.label = tk.Label(self.root, text="Select an Excel file to process:", font=("Arial", 14), fg="black", bg="light goldenrod yellow")
+        self.label.pack(pady=20)
+
+        self.select_button = tk.Button(self.root, text="Select Excel File", command=self.select_excel_file, font=("Arial", 12), fg="black", bg="light grey", activebackground="light grey", activeforeground="black")
+        self.select_button.pack(pady=10)
+
+        self.process_button = tk.Button(self.root, text="Process and Save as Excel", command=self.process_and_save, state=tk.DISABLED, font=("Arial", 12), fg="black", bg="light grey", activebackground="light grey", activeforeground="black")
+        self.process_button.pack(pady=10)
+
+        self.open_button = tk.Button(self.root, text="Open Processed File", command=self.open_processed_file, state=tk.DISABLED, font=("Arial", 12), fg="black", bg="light grey", activebackground="light grey", activeforeground="black")
+        self.open_button.pack(pady=10)
+
+        self.status_label = tk.Label(self.root, text="", font=("Arial", 12), fg="black", bg="light goldenrod yellow")
+        self.status_label.pack(pady=20)
+
+    def select_excel_file(self):
+        """Open a file dialog to select an Excel file."""
+        self.excel_file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls;*.xlsx")])
+        if self.excel_file_path:
+            self.status_label.config(text=f"Selected Excel file: {os.path.basename(self.excel_file_path)}", fg="green")
+            self.process_button.config(state=tk.NORMAL)
+        else:
+            self.status_label.config(text="No Excel file selected", fg="red")
+            self.process_button.config(state=tk.DISABLED)
+
+    def process_and_save(self):
+        """Process the selected Excel file and save the output to a new file."""
+        try:
+            df = self.read_excel_file(self.excel_file_path)
+            final_df = self.process_dataframe(df)
+            self.save_excel_file(final_df)
+        except Exception as e:
+            self.status_label.config(text=f"Error: {str(e)}", fg="red")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def read_excel_file(self, file_path):
+        """Read the Excel file and return a DataFrame."""
+        return pd.read_excel(file_path)
+
+    def process_dataframe(self, df):
+        """Process the DataFrame and return the final DataFrame."""
+        filter_requirements = df[df['LK_ContentType'] == 'Req']
+        mask = filter_requirements['LK_SWC'].str.contains('\n')
+        filter_requirements['Parent Requirement ID'] = filter_requirements['ID']
+
+        expanded_df = self.split_and_expand(filter_requirements[mask], 'LK_SWC', '\n')
+        combined_df = pd.concat([filter_requirements[~mask], expanded_df], ignore_index=True)
+        final_df = pd.concat([df, combined_df], ignore_index=True)
+        return final_df
+
+    def split_and_expand(self, my_df, column, sep):
+        """Split the specified column by the given separator and expand the DataFrame."""
+        s = my_df[column].str.split(sep).apply(pd.Series, 1).stack()
+        s.index = s.index.droplevel(-1)
+        s.name = column
+        my_df = my_df.drop(columns=[column])
+        return my_df.join(s)
+
+    def save_excel_file(self, final_df):
+        """Save the processed DataFrame to an Excel file with formatting."""
+        save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
+        if save_path:
+            final_df.to_excel(save_path, index=False, sheet_name='Processed Data')
+            self.format_excel_file(save_path)
+            self.processed_file_path = save_path
+            self.status_label.config(text=f"File successfully processed and saved as {os.path.basename(save_path)}", fg="green")
+            self.open_button.config(state=tk.NORMAL)
+        else:
+            self.status_label.config(text="Save operation cancelled", fg="red")
+
+    def format_excel_file(self, file_path):
+        """Format the Excel file to improve readability."""
+        workbook = load_workbook(file_path)
+        sheet = workbook['Processed Data']
+
+        for col in sheet.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                    if isinstance(cell.value, str):
+                        cell.alignment = Alignment(horizontal='left')
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            sheet.column_dimensions[column].width = adjusted_width
+
+        for cell in sheet["1:1"]:
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center")
+
+        workbook.save(file_path)
+
+    def open_processed_file(self):
+        """Open the processed Excel file."""
+        if self.processed_file_path:
+            try:
+                os.startfile(self.processed_file_path)
+            except OSError:
+                messagebox.showerror("Error", "Failed to open the processed file.")
+        else:
+            messagebox.showinfo("Information", "No processed file to open.")
+
+# Create the Tkinter application window
+root = tk.Tk()
+app = ExcelProcessor(root)
+root.mainloop()
