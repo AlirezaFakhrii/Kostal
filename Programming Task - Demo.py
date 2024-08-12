@@ -128,6 +128,7 @@ class ExcelProcessor:
         else:
             messagebox.showinfo("Information", "No processed file to open.")
 
+
 # Create the Tkinter application window
 root = tk.Tk()
 app = ExcelProcessor(root)
